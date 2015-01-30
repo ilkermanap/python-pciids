@@ -87,15 +87,16 @@ class PCIIds:
     """
     Top class for all pci.ids entries.
     All queries will be asked to this class.
-    PCIIds.vendors["0e11"].devices["0046"].subdevices["0e11:4091"].name  =  "Smart Array 6i" 
+    PCIIds.vendors["0e11"].devices["0046"].subdevices["0e11:4091"].name  =  "Smart Array 6i"
     """
     def __init__(self):
         """
-        Prepares the directories. 
-        Checks local data file. 
+        Prepares the directories.
+        Checks local data file.
         Tries to load from local, if not found, downloads from web
         """
         self.version = ""
+        self.date = ""
         self.compressed = "pci.ids.bz2"
         subprocess.call(['mkdir -p data'], shell=True)
         self.vendors = {}
@@ -121,11 +122,16 @@ class PCIIds:
             for vID, v in self.vendors.items():
                 v.report()
 
+    def findDate(self, content):
+        for l in content:
+            if l.find("Date:") > -1:
+                return l.split()[-2].replace("-", "")
+        return None
+
     def parse(self):
         if len(self.contents) < 1:
-            print "data/%s-pci.ids not found" % self.version
+            print "data/%s-pci.ids not found" % self.date
         else:
-            vendorFound = False
             vendorID = ""
             deviceID = ""
             for l in self.contents:
@@ -145,33 +151,35 @@ class PCIIds:
 
     def getLatest(self):
         """
-        
         """
-        ver, url = self.latestVersion()
-        outfile = "data/%s-%s" % (ver, self.compressed)
+        ver, date, url = self.latestVersion()
+        outfile = "data/%s-%s" % (date, self.compressed)
         out = open(outfile, "w")
         out.write(urllib2.urlopen(url).read())
         out.close()
-        subprocess.call(['bzip2 -d %s' % outfile], shell=True) 
+        subprocess.call(['bzip2 -d %s' % outfile], shell=True)
         self.version = ver
+        self.date = date
         self.readLocal()
+
 
     def readLocal(self):
         """
         Reads the local file
         """
-        self.contents = open("data/%s-pci.ids" % self.version).readlines()
+        self.contents = open("data/%s-pci.ids" % self.date).readlines()
+        self.date = self.findDate(self.contents)
 
     def loadLocal(self):
         """
-        Loads database from local. If there is no file, 
+        Loads database from local. If there is no file,
         it creates a new one from web
         """
         idsfile = glob.glob("data/*.ids")
         if len(idsfile) == 0:
             self.getLatest()
         else:
-            self.version = idsfile[0].split("/")[1].split("-")[0]
+            self.date = idsfile[0].split("/")[1].split("-")[0]
             self.readLocal()
 
     def latestVersion(self):
@@ -185,11 +193,19 @@ class PCIIds:
                     if tag.find(self.compressed) > -1:
                         path = tag.split('"')[1]
                         ver = path.split("/")[1]
-                        return (ver, "%s%s" % (HOME, path))
+                        url = "%s%s" % (HOME, path)
+                        urlUncompressed  = url.replace(".bz2","")
+                        con = urllib2.urlopen(urlUncompressed)
+                        for i in range(10):
+                            l = con.readline()
+                            if l.find("Date:") > -1:
+                                date = l.split()[-2].replace("-","")
+                                break
+                        return (ver, date, "%s%s" % (HOME, path))
                 break
         return ""
 
 
 if __name__ == "__main__":
     id = PCIIds()
-    id.reportVendors()
+    #id.reportVendors()

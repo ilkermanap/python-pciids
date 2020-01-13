@@ -1,7 +1,7 @@
 import os
-import urllib2
+import bz2
+import requests
 import glob
-import subprocess
 
 global HOME
 HOME = "https://pci-ids.ucw.cz"
@@ -35,7 +35,7 @@ class Vendor:
             self.devices[devID] = Device(deviceStr)
 
     def report(self):
-        print self.ID, self.name
+        print( self.ID, self.name)
         for id, dev in self.devices.items():
             dev.report()
 
@@ -51,7 +51,7 @@ class Device:
         self.subdevices = {}
 
     def report(self):
-        print "\t%s\t%s" % (self.ID, self.name)
+        print("\t%s\t%s" % (self.ID, self.name))
         for subID, subdev in self.subdevices.items():
             subdev.report()
 
@@ -81,7 +81,7 @@ class SubDevice:
         self.name = name
 
     def report(self):
-        print "\t\t%s\t%s\t%s" % (self.vendorID, self.deviceID,self.name)
+        print( "\t\t%s\t%s\t%s" % (self.vendorID, self.deviceID,self.name))
 
 class PCIIds:
     """
@@ -89,26 +89,29 @@ class PCIIds:
     All queries will be asked to this class.
     PCIIds.vendors["0e11"].devices["0046"].subdevices["0e11:4091"].name  =  "Smart Array 6i"
     """
-    def __init__(self):
+    def __init__(self, url=HOME):
         """
         Prepares the directories.
         Checks local data file.
         Tries to load from local, if not found, downloads from web
         """
+        self.url = url
         self.version = ""
         self.date = ""
         self.compressed = "pci.ids.bz2"
-        subprocess.call(['mkdir -p data'], shell=True)
+        if (os.path.isdir("data") is False):
+            os.mkdir("data")
         self.vendors = {}
         self.contents = None
         self.loadLocal()
         self.parse()
 
+            
     def reportVendors(self):
         """Reports the vendors
         """
         for vid, v in self.vendors.items():
-            print v.ID, v.name
+            print( v.ID, v.name)
 
     def report(self, vendor = None):
         """
@@ -130,7 +133,7 @@ class PCIIds:
 
     def parse(self):
         if len(self.contents) < 1:
-            print "data/%s-pci.ids not found" % self.date
+            print( "data/%s-pci.ids not found" % self.date)
         else:
             vendorID = ""
             deviceID = ""
@@ -149,15 +152,13 @@ class PCIIds:
                         vendorID = l.split()[0]
                         self.vendors[vendorID] = Vendor(l)
 
-    def getLatest(self):
-        """
-        """
+    def getLatest(self):        
         ver, date, url = self.latestVersion()
-        outfile = "data/%s-%s" % (date, self.compressed)
-        out = open(outfile, "w")
-        out.write(urllib2.urlopen(url).read())
+        outfile = "data/%s-%s" % (date, self.compressed[:-4]) # remove bz2            
+        out = open(outfile, "wb")
+        resp = requests.get(url)
+        out.write(bz2.decompress(resp.content))        
         out.close()
-        subprocess.call(['bzip2 -d %s' % outfile], shell=True)
         self.version = ver
         self.date = date
         self.readLocal()
@@ -186,21 +187,26 @@ class PCIIds:
         """
         Checks the latest version from web
         """
-        webPage = urllib2.urlopen(HOME).readlines()
+        resp = requests.get(self.url)
+        webPage = resp.content.decode().splitlines()
         for line in webPage:
-             if line.find(self.compressed) > -1:
+            if line.find(self.compressed) > -1:
+                print(line)
                 for tag in line.split("<"):
                     if tag.find(self.compressed) > -1:
                         path = tag.split('"')[1]
                         ver = path.split("/")[1]
-                        url = "%s%s" % (HOME, path)
+                        url = "%s%s" % (self.url, path)
                         urlUncompressed  = url.replace(".bz2","")
-                        con = urllib2.urlopen(urlUncompressed)
+                        resp2 = requests.get(urlUncompressed)                        
+                        con = resp2.content.decode().splitlines()
                         for i in range(10):
-                            l = con.readline()
+                            l = con[i]
+
                             if l.find("Date:") > -1:
                                 date = l.split()[-2].replace("-","")
                                 break
+                        
                         return (ver, date, "%s%s" % (HOME, path))
                 break
         return ""
